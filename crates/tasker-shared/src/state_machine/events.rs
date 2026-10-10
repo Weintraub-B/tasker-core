@@ -76,6 +76,10 @@ pub enum TaskEvent {
     EnqueueFailed(String),
     /// A single step completed
     StepCompleted(Uuid),
+    /// An operator-repaired step has been persisted, and the parent task has
+    /// no remaining failed steps. Re-enter normal dependency discovery (never execute
+    /// dependent work directly from the REST handler).
+    ManualStepRecovered(Uuid),
     /// A single step failed
     StepFailed(Uuid),
     /// All steps in current batch completed
@@ -126,6 +130,7 @@ impl TaskEvent {
             Self::StepsEnqueued(_) => "steps_enqueued",
             Self::EnqueueFailed(_) => "enqueue_failed",
             Self::StepCompleted(_) => "step_completed",
+            Self::ManualStepRecovered(_) => "manual_step_recovered",
             Self::StepFailed(_) => "step_failed",
             Self::AllStepsCompleted => "all_steps_completed",
             Self::AllStepsSuccessful => "all_steps_successful",
@@ -198,7 +203,7 @@ impl TaskEvent {
     /// Get completed or failed step UUID
     pub fn step_uuid(&self) -> Option<Uuid> {
         match self {
-            Self::StepCompleted(uuid) | Self::StepFailed(uuid) => Some(*uuid),
+            Self::StepCompleted(uuid) | Self::StepFailed(uuid) | Self::ManualStepRecovered(uuid) => Some(*uuid),
             _ => None,
         }
     }

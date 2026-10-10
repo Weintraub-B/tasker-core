@@ -142,6 +142,8 @@ tokio-stream = { workspace = true, optional = true }
 # Note: Requires protobuf to be installed (brew install protobuf)
 tonic-build = { workspace = true }
 tonic-prost-build = { workspace = true }
+# Reproducible protobuf compilation in confined/test runners without system protoc.
+protoc-bin-vendored = "3"
 
 [dev-dependencies]
 # Coverage tools (used in CI)

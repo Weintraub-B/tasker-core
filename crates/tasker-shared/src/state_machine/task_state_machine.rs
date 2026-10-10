@@ -224,6 +224,9 @@ impl TaskStateMachine {
             (WaitingForRetry, RetryReady) => EnqueuingSteps,
             (BlockedByFailures, GiveUp) => Error,
             (BlockedByFailures, ManualResolution) => ResolvedManually,
+            // An operator can reopen normal scheduling ONLY after StepService
+            // independently verifies no failed workflow steps remain.
+            (BlockedByFailures, ManualStepRecovered(_)) => WaitingForDependencies,
 
             // Cancellation from any non-terminal state
             (state, Cancel) if !state.is_terminal() => Cancelled,
