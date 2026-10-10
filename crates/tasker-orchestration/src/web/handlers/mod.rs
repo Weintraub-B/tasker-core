@@ -15,6 +15,7 @@ pub mod analytics;
 pub mod config;
 pub mod dlq;
 pub mod health;
+pub mod runner;
 pub mod steps;
 pub mod tasks;
 pub mod templates;

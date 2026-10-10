@@ -43,6 +43,7 @@ describe('Bootstrap API (No FFI)', () => {
         configPath: '/path/to/config.toml',
         logLevel: 'trace',
         databaseUrl: 'postgresql://localhost/test',
+        completionTimeoutMs: 305000,
       });
 
       expect(result.success).toBe(false);

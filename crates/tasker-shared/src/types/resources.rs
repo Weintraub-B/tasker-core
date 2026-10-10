@@ -212,7 +212,8 @@ impl ResourceAction {
             (Resource::Dlq, Action::Update) => Permission::DlqUpdate,
             (Resource::Dlq, Action::Stats) => Permission::DlqStats,
 
-            // Templates - Read/List both use TemplatesRead permission
+            // Templates
+            (Resource::Templates, Action::Create) => Permission::TemplatesCreate,
             (Resource::Templates, Action::Read | Action::List) => Permission::TemplatesRead,
             (Resource::Templates, Action::Validate) => Permission::TemplatesValidate,
 
@@ -371,6 +372,12 @@ mod tests {
 
     #[test]
     fn test_templates_permissions() {
+        let create_template = ResourceAction::new(Resource::Templates, Action::Create);
+        assert_eq!(
+            create_template.required_permission(),
+            Some(Permission::TemplatesCreate)
+        );
+
         let read_template = ResourceAction::new(Resource::Templates, Action::Read);
         assert_eq!(
             read_template.required_permission(),
@@ -470,6 +477,11 @@ mod tests {
             (Resource::Dlq, Action::Update, Permission::DlqUpdate),
             (Resource::Dlq, Action::Stats, Permission::DlqStats),
             // Templates
+            (
+                Resource::Templates,
+                Action::Create,
+                Permission::TemplatesCreate,
+            ),
             (Resource::Templates, Action::Read, Permission::TemplatesRead),
             (Resource::Templates, Action::List, Permission::TemplatesRead),
             (

@@ -383,13 +383,29 @@ impl WorkerBootstrap {
     pub async fn bootstrap_with_event_system(
         event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>,
     ) -> TaskerResult<WorkerSystemHandle> {
+        Self::bootstrap_with_event_system_and_namespaces(event_system, None).await
+    }
+
+    /// Bootstrap a worker constrained to an explicit namespace set.
+    /// This is used by language-worker FFI surfaces whose public config already
+    /// carries namespace ownership.
+    pub async fn bootstrap_with_namespaces(
+        namespaces: Vec<String>,
+    ) -> TaskerResult<WorkerSystemHandle> {
+        Self::bootstrap_with_event_system_and_namespaces(None, Some(namespaces)).await
+    }
+
+    async fn bootstrap_with_event_system_and_namespaces(
+        event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>,
+        namespace_override: Option<Vec<String>>,
+    ) -> TaskerResult<WorkerSystemHandle> {
         info!(
             "Starting unified worker system bootstrap with context-specific configuration (TAS-50)"
         );
 
         // Step 1: Initialize system context and worker core
         let (system_context, worker_core, dispatch_handles) =
-            Self::initialize_worker_core(event_system).await?;
+            Self::initialize_worker_core(event_system, namespace_override).await?;
 
         let tasker_config = system_context.tasker_config.as_ref();
         let config: WorkerBootstrapConfig = tasker_config.into();
@@ -469,6 +485,7 @@ impl WorkerBootstrap {
     /// Initialize the system context and worker core, then start the core.
     async fn initialize_worker_core(
         event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>,
+        namespace_override: Option<Vec<String>>,
     ) -> TaskerResult<(Arc<SystemContext>, Arc<Mutex<WorkerCore>>, DispatchHandles)> {
         // TAS-50 Phase 2: Use worker-specific context loading
         // This loads only CommonConfig + WorkerConfig from context TOML files
@@ -483,10 +500,11 @@ impl WorkerBootstrap {
 
         // Create worker core (not wrapped in Arc yet - we need to start it first)
         // TAS-67: WorkerCore now returns dispatch handles for language-specific consumption
-        let (mut worker_core, dispatch_handles) = WorkerCore::new_with_event_system(
+        let (mut worker_core, dispatch_handles) = WorkerCore::new_with_event_system_and_namespaces(
             system_context.clone(),
             config.orchestration_api_config.clone(),
             event_system, // Use provided event system for cross-component coordination
+            namespace_override,
         )
         .await?;
 

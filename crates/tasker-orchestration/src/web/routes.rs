@@ -66,6 +66,22 @@ pub fn api_v1_routes() -> Router<AppState> {
             )),
         )
         .route(
+            "/tasks/resolve",
+            get(authorize(
+                Resource::Tasks,
+                Action::Read,
+                handlers::runner::resolve_task_identity,
+            )),
+        )
+        .route(
+            "/tasks/{uuid}/events",
+            get(authorize(
+                Resource::Tasks,
+                Action::Read,
+                handlers::runner::get_execution_events,
+            )),
+        )
+        .route(
             "/tasks/{uuid}",
             delete(authorize(
                 Resource::Tasks,
@@ -122,6 +138,14 @@ pub fn api_v1_routes() -> Router<AppState> {
                 Resource::Templates,
                 Action::List,
                 handlers::templates::list_templates,
+            )),
+        )
+        .route(
+            "/templates/immutable",
+            post(authorize(
+                Resource::Templates,
+                Action::Create,
+                handlers::runner::register_immutable_template,
             )),
         )
         .route(

@@ -18,6 +18,7 @@ use tasker_shared::models::core::task_request::TaskRequest;
 
 // Import all handler response types
 use crate::web::handlers;
+use crate::web::handlers::runner::{ExecutionEventsPage, ExecutionTransitionEvent, ImmutableTemplateRegistrationRequest, ImmutableTemplateRegistrationResponse};
 // DLQ handler types (TAS-49)
 use crate::web::handlers::dlq::{UpdateInvestigationRequest, UpdateInvestigationResponse};
 
@@ -50,6 +51,8 @@ use tasker_shared::models::orchestration::StalenessHealthStatus;
         handlers::tasks::list_tasks,
         handlers::tasks::get_task,
         handlers::tasks::cancel_task,
+        handlers::runner::resolve_task_identity,
+        handlers::runner::get_execution_events,
 
         // Health API paths
         handlers::health::basic_health,
@@ -70,6 +73,7 @@ use tasker_shared::models::orchestration::StalenessHealthStatus;
         // TAS-76: Templates API paths (replaces legacy handlers registry)
         handlers::templates::list_templates,
         handlers::templates::get_template,
+        handlers::runner::register_immutable_template,
 
         // TAS-49: DLQ API paths
         handlers::dlq::list_dlq_entries,
@@ -88,6 +92,10 @@ use tasker_shared::models::orchestration::StalenessHealthStatus;
         TaskResponse,
         TaskListResponse,
         PaginationInfo,
+        ImmutableTemplateRegistrationRequest,
+        ImmutableTemplateRegistrationResponse,
+        ExecutionTransitionEvent,
+        ExecutionEventsPage,
 
         // Database function types used in responses
         StepReadinessStatus,

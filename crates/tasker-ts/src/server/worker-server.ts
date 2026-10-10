@@ -387,10 +387,14 @@ export class WorkerServer {
    */
   private async bootstrapPhase(): Promise<BootstrapResult> {
     // Build config, only setting properties that have values
+    const handlerTimeoutMs = this.config?.handlerTimeoutMs ?? 300000;
     const bootstrapConfig: BootstrapConfig = {
       namespace: this.config?.namespace ?? process.env.TASKER_NAMESPACE ?? 'default',
       logLevel:
         this.config?.logLevel ?? (process.env.RUST_LOG as BootstrapConfig['logLevel']) ?? 'info',
+      // Rust owns the pending FFI event. It must never expire that event before
+      // the TypeScript handler's own execution budget has elapsed.
+      completionTimeoutMs: handlerTimeoutMs + 5000,
     };
 
     const configPath = this.config?.configPath ?? process.env.TASKER_CONFIG_PATH;

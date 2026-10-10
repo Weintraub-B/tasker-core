@@ -29,6 +29,7 @@ pub enum Permission {
     DlqStats,
 
     // Template permissions
+    TemplatesCreate,
     TemplatesRead,
     TemplatesValidate,
 
@@ -56,6 +57,7 @@ impl Permission {
             Self::DlqRead => "dlq:read",
             Self::DlqUpdate => "dlq:update",
             Self::DlqStats => "dlq:stats",
+            Self::TemplatesCreate => "templates:create",
             Self::TemplatesRead => "templates:read",
             Self::TemplatesValidate => "templates:validate",
             Self::SystemConfigRead => "system:config_read",
@@ -76,7 +78,7 @@ impl Permission {
             | Self::TasksContextRead => "tasks",
             Self::StepsRead | Self::StepsResolve => "steps",
             Self::DlqRead | Self::DlqUpdate | Self::DlqStats => "dlq",
-            Self::TemplatesRead | Self::TemplatesValidate => "templates",
+            Self::TemplatesCreate | Self::TemplatesRead | Self::TemplatesValidate => "templates",
             Self::SystemConfigRead | Self::HandlersRead | Self::AnalyticsRead => "system",
             Self::WorkerConfigRead | Self::WorkerTemplatesRead => "worker",
         }
@@ -95,6 +97,7 @@ impl Permission {
             "dlq:read" => Some(Self::DlqRead),
             "dlq:update" => Some(Self::DlqUpdate),
             "dlq:stats" => Some(Self::DlqStats),
+            "templates:create" => Some(Self::TemplatesCreate),
             "templates:read" => Some(Self::TemplatesRead),
             "templates:validate" => Some(Self::TemplatesValidate),
             "system:config_read" => Some(Self::SystemConfigRead),
@@ -119,6 +122,7 @@ impl Permission {
             Self::DlqRead,
             Self::DlqUpdate,
             Self::DlqStats,
+            Self::TemplatesCreate,
             Self::TemplatesRead,
             Self::TemplatesValidate,
             Self::SystemConfigRead,

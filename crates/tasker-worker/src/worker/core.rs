@@ -40,7 +40,7 @@ use super::handlers::{CompletionProcessorConfig, CompletionProcessorService};
 use super::in_process_event_bus::{InProcessEventBus, InProcessEventBusConfig};
 use super::step_event_publisher::{PublishResult, StepEventContext, StepEventPublisher};
 use super::step_event_publisher_registry::StepEventPublisherRegistry;
-use super::task_template_manager::TaskTemplateManager;
+use super::task_template_manager::{TaskTemplateManager, TaskTemplateManagerConfig};
 use crate::health::WorkerHealthStatus;
 use std::sync::RwLock;
 use tasker_client::api_clients::orchestration_client::{
@@ -219,34 +219,83 @@ impl WorkerCore {
         orchestration_config: OrchestrationApiConfig,
         event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>,
     ) -> TaskerResult<(Self, DispatchHandles)> {
+        Self::new_with_event_system_and_namespaces(
+            context,
+            orchestration_config,
+            event_system,
+            None,
+        )
+        .await
+    }
+
+    /// Create WorkerCore with an optional explicit namespace set.
+    ///
+    /// Language-worker FFIs already expose a namespace at their public bootstrap
+    /// boundary. Passing it here lets dynamically registered templates use that
+    /// contract instead of requiring filesystem discovery as a side channel.
+    pub async fn new_with_event_system_and_namespaces(
+        context: Arc<SystemContext>,
+        orchestration_config: OrchestrationApiConfig,
+        event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>,
+        namespace_override: Option<Vec<String>>,
+    ) -> TaskerResult<(Self, DispatchHandles)> {
         info!("Creating WorkerCore with TAS-69 Actor-Based Architecture");
 
-        // Create worker-specific components
-        let task_template_manager = Arc::new(TaskTemplateManager::new(
+        // Create worker-specific components. The existing fallback-poller
+        // namespace list is the worker's only explicit namespace configuration
+        // today. Seed template/event ownership from it as well so workers can
+        // service templates registered dynamically through the orchestration API,
+        // without requiring a fake filesystem template solely for discovery.
+        let mut configured_namespaces = namespace_override.unwrap_or_else(|| {
+            context
+                .tasker_config
+                .worker
+                .as_ref()
+                .map(|worker| {
+                    worker
+                        .event_systems
+                        .worker
+                        .metadata
+                        .fallback_poller
+                        .supported_namespaces
+                        .clone()
+                })
+                .unwrap_or_default()
+        });
+        configured_namespaces = configured_namespaces
+            .into_iter()
+            .map(|namespace| namespace.trim().to_string())
+            .filter(|namespace| !namespace.is_empty())
+            .collect();
+        configured_namespaces.sort();
+        configured_namespaces.dedup();
+        let manager_config = if configured_namespaces.is_empty() {
+            TaskTemplateManagerConfig::default()
+        } else {
+            TaskTemplateManagerConfig::default().with_namespaces(configured_namespaces.clone())
+        };
+        let task_template_manager = Arc::new(TaskTemplateManager::with_config(
             context.task_template_registry.clone(),
+            manager_config,
         ));
 
         let discovery_result = task_template_manager.ensure_templates_in_database().await?;
-
-        if !discovery_result.discovered_namespaces.is_empty() {
-            let namespace_refs: Vec<&str> = discovery_result
-                .discovered_namespaces
-                .iter()
-                .map(|ns| ns.as_str())
-                .collect();
-
-            // Initialize worker queues for step execution
-            context.initialize_queues(&namespace_refs).await?;
-
-            // TAS-65 Phase 2: Initialize domain event queues for event publishing
-            context
-                .initialize_domain_event_queues(&namespace_refs)
-                .await?;
-
-            task_template_manager
-                .set_supported_namespaces(discovery_result.discovered_namespaces.clone())
-                .await;
+        let mut supported_namespaces = configured_namespaces;
+        supported_namespaces.extend(discovery_result.discovered_namespaces.clone());
+        if supported_namespaces.is_empty() {
+            supported_namespaces = task_template_manager.supported_namespaces().await;
         }
+        supported_namespaces.sort();
+        supported_namespaces.dedup();
+
+        let namespace_refs: Vec<&str> = supported_namespaces.iter().map(String::as_str).collect();
+        // Initialize queues even when templates are registry-only. Previously no
+        // queue was created unless filesystem discovery returned a namespace.
+        context.initialize_queues(&namespace_refs).await?;
+        context.initialize_domain_event_queues(&namespace_refs).await?;
+        task_template_manager
+            .set_supported_namespaces(supported_namespaces)
+            .await;
 
         let orchestration_client = Arc::new(
             OrchestrationApiClient::new(orchestration_config).map_err(|e| {

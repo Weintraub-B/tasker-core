@@ -283,7 +283,7 @@ valid_range = "1-3600"
 system_impact = "Prevents duplicate processing during fallback polling"
 
 [worker.event_systems.worker.metadata.fallback_poller._docs.supported_namespaces]
-description = "List of queue namespaces the fallback poller monitors; empty means all namespaces"
+description = "Explicit worker queue/template namespaces; the event listener and fallback poller service this set. Empty preserves the default namespace and filesystem discovery may add namespaces."
 type = "Vec<String>"
 valid_range = "list of namespace strings"
 system_impact = "Restricts which queues the poller checks; useful for dedicated workers that handle specific step types"
