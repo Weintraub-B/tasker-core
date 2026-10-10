@@ -15,7 +15,9 @@ use crate::services::step_query_service::{StepQueryError, StepQueryService, Step
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
 use tasker_shared::messaging::execution_types::StepExecutionResult;
 use tasker_shared::models::core::workflow_step::WorkflowStep;
-use tasker_shared::state_machine::events::StepEvent;
+use tasker_shared::state_machine::events::{StepEvent, TaskEvent};
+use tasker_shared::state_machine::task_state_machine::TaskStateMachine;
+use tasker_shared::state_machine::states::TaskState;
 use tasker_shared::state_machine::step_state_machine::StepStateMachine;
 use tasker_shared::state_machine::StateMachineError;
 use tasker_shared::system_context::SystemContext;
@@ -164,6 +166,14 @@ impl StepService {
                     "Step action completed successfully"
                 );
 
+                // A manually repaired step bypasses the ordinary worker result
+                // coordination path. Re-evaluate its formerly blocked task only
+                // after verifying no failed steps remain; the normal Tasker
+                // scheduler, not this REST handler, dispatches dependents.
+                if matches!(action, StepManualAction::CompleteManually { .. }) {
+                    self.reopen_after_manual_step_completion(task_uuid, step_uuid).await?;
+                }
+
                 // Get updated step with readiness
                 let sql_executor = SqlFunctionExecutor::new(self.write_pool.clone());
                 let updated_step = WorkflowStep::find_by_id(&self.write_pool, step_uuid)
@@ -209,6 +219,69 @@ impl StepService {
                 Err(StepServiceError::InvalidTransition(error_message))
             }
         }
+    }
+
+    /// Reopen a task whose last permanent step failure was manually repaired.
+    ///
+    /// Native REST manual completion does not create a worker result event, so
+    /// the ordinary orchestration result processor never gets an opportunity
+    /// to transition BlockedByFailures -> EvaluatingResults. The normal
+    /// StepEnqueuerService must remain the ONLY dispatcher of dependencies.
+    /// A step write may have committed before a transient error; replaying the
+    /// operator call can safely invoke this helper again, but no duplicate
+    /// execution is dispatched by the helper itself.
+    async fn reopen_after_manual_step_completion(
+        &self,
+        task_uuid: Uuid,
+        step_uuid: Uuid,
+    ) -> StepServiceResult<()> {
+        let sql_executor = SqlFunctionExecutor::new(self.write_pool.clone());
+        let context = sql_executor
+            .get_task_execution_context(task_uuid)
+            .await
+            .map_err(|e| StepServiceError::Database(e.to_string()))?
+            .ok_or_else(|| StepServiceError::Internal(
+                "Task execution context missing after manual step completion".to_string(),
+            ))?;
+        if context.failed_steps > 0 {
+            info!(
+                task_uuid = %task_uuid,
+                step_uuid = %step_uuid,
+                remaining_failed_steps = context.failed_steps,
+                "Manual completion leaves task blocked by remaining failures"
+            );
+            return Ok(());
+        }
+        let mut state_machine = TaskStateMachine::for_task(
+            task_uuid,
+            self.write_pool.clone(),
+            self.system_context.processor_uuid(),
+        )
+        .await
+        .map_err(|e| StepServiceError::Internal(format!(
+            "Cannot load parent task state following manual completion: {e}"
+        )))?;
+        let state = state_machine.current_state().await.map_err(|e|
+            StepServiceError::Internal(format!("Cannot read parent task state: {e}"))
+        )?;
+        if state == TaskState::BlockedByFailures {
+            let transitioned = state_machine
+                .transition(TaskEvent::ManualStepRecovered(step_uuid))
+                .await
+                .map_err(|e| StepServiceError::Internal(format!(
+                    "Cannot reopen parent task after manual completion: {e}"
+                )))?;
+            if transitioned {
+                info!(
+                    task_uuid = %task_uuid,
+                    step_uuid = %step_uuid,
+                    "Reopened parent task for normal dependency-ready discovery"
+                );
+            }
+        }
+        // If another processor already reopened the task, do not disturb its
+        // newer state. In particular, never reset a cancelled/terminal task.
+        Ok(())
     }
 
     /// Build a StepEvent from a StepManualAction.

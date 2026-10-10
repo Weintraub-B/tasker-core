@@ -109,6 +109,7 @@ impl TransitionGuard {
             (WaitingForRetry, EnqueuingSteps, RetryReady) => true,
             (BlockedByFailures, Error, GiveUp) => true,
             (BlockedByFailures, ResolvedManually, ManualResolution) => true,
+            (BlockedByFailures, WaitingForDependencies, ManualStepRecovered(_)) => true,
 
             // Cancellation from any non-terminal state
             (from, Cancelled, Cancel) if !from.is_terminal() => true,
@@ -606,6 +607,35 @@ mod tests {
             result.is_ok(),
             "BlockedByFailures -> ResolvedManually on ManualResolution should be valid"
         );
+    }
+
+    #[test]
+    fn test_operator_repaired_step_reenters_normal_dependency_discovery() {
+        let task = dummy_task();
+        let step_id = uuid::Uuid::now_v7();
+        let event = TaskEvent::ManualStepRecovered(step_id);
+        assert_eq!(event.event_type(), "manual_step_recovered");
+        assert_eq!(event.step_uuid(), Some(step_id));
+        assert!(TransitionGuard::can_transition(
+            TaskState::BlockedByFailures,
+            TaskState::WaitingForDependencies,
+            &event,
+            &task,
+        ).is_ok());
+        // An operator repair must never reopen a terminal failed task or
+        // bypass a task which is actively executing a different workflow.
+        assert!(TransitionGuard::can_transition(
+            TaskState::Error,
+            TaskState::EvaluatingResults,
+            &event,
+            &task,
+        ).is_err());
+        assert!(TransitionGuard::can_transition(
+            TaskState::StepsInProcess,
+            TaskState::EvaluatingResults,
+            &event,
+            &task,
+        ).is_err());
     }
 
     // =========================================================================

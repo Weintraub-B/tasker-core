@@ -66,6 +66,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .collect();
 
+        // Prefer an explicitly configured system protoc; otherwise use the
+        // pinned vendored compiler, including in confined CI build runners.
+        if std::env::var_os("PROTOC").is_none() {
+            std::env::set_var("PROTOC", protoc_bin_vendored::protoc_bin_path()?);
+        }
+
         // Configure tonic-prost-build (tonic 0.14 API)
         tonic_prost_build::configure()
             // Generate server code
