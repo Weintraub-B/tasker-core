@@ -212,6 +212,7 @@ fn show_permissions() -> ClientResult<()> {
         (Permission::DlqRead, "Read DLQ entries"),
         (Permission::DlqUpdate, "Update DLQ investigations"),
         (Permission::DlqStats, "View DLQ statistics"),
+        (Permission::TemplatesCreate, "Create/register task templates"),
         (Permission::TemplatesRead, "Read task templates"),
         (Permission::TemplatesValidate, "Validate templates"),
         (Permission::SystemConfigRead, "Read system configuration"),

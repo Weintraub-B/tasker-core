@@ -34,6 +34,9 @@ export interface BootstrapConfig {
 
   /** Database URL override. */
   databaseUrl?: string;
+
+  /** Rust FFI completion timeout in milliseconds. Must cover the handler budget. */
+  completionTimeoutMs?: number;
 }
 
 /**
@@ -125,6 +128,7 @@ export function toFfiBootstrapConfig(config?: BootstrapConfig): FfiBootstrapConf
   const result: FfiBootstrapConfig = {};
   if (config.namespace !== undefined) result.namespace = config.namespace;
   if (config.configPath !== undefined) result.configPath = config.configPath;
+  if (config.completionTimeoutMs !== undefined) result.completionTimeoutMs = config.completionTimeoutMs;
   return result;
 }
 

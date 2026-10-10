@@ -69,6 +69,10 @@ impl std::fmt::Debug for NapiBridgeHandle {
 pub struct BootstrapConfig {
     pub namespace: Option<String>,
     pub config_path: Option<String>,
+    /// Maximum time Rust may keep an FFI step pending while the language
+    /// handler is legitimately executing. This must be at least as long as
+    /// the language-side handler budget.
+    pub completion_timeout_ms: Option<u32>,
 }
 
 /// Result of bootstrapping the worker.
@@ -539,8 +543,24 @@ pub fn bootstrap_worker(config: Option<BootstrapConfig>) -> Result<BootstrapResu
         tasker_shared::logging::init_tracing();
     });
 
+    let namespace_override = config
+        .as_ref()
+        .and_then(|cfg| cfg.namespace.as_ref())
+        .map(|namespace| namespace.trim().to_string())
+        .filter(|namespace| !namespace.is_empty());
+    let ffi_completion_timeout = config
+        .as_ref()
+        .and_then(|cfg| cfg.completion_timeout_ms)
+        .map(|milliseconds| std::time::Duration::from_millis(milliseconds as u64))
+        .unwrap_or_else(|| std::time::Duration::from_secs(30));
+
     let mut system_handle = runtime
-        .block_on(async { WorkerBootstrap::bootstrap().await })
+        .block_on(async {
+            match namespace_override {
+                Some(namespace) => WorkerBootstrap::bootstrap_with_namespaces(vec![namespace]).await,
+                None => WorkerBootstrap::bootstrap().await,
+            }
+        })
         .map_err(|e| {
             error!("Failed to bootstrap worker system: {}", e);
             napi::Error::from(NapiFfiError::BootstrapFailed(e.to_string()))
@@ -568,7 +588,7 @@ pub fn bootstrap_worker(config: Option<BootstrapConfig>) -> Result<BootstrapResu
     {
         let config_ffi = FfiDispatchChannelConfig::new(runtime.handle().clone())
             .with_service_id(worker_id_str.clone())
-            .with_completion_timeout(std::time::Duration::from_secs(30));
+            .with_completion_timeout(ffi_completion_timeout);
 
         let db_pool = runtime.block_on(async {
             let worker_core = system_handle.worker_core.lock().await;
