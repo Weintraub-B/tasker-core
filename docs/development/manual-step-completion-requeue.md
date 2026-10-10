@@ -1,6 +1,7 @@
 # Manual workflow-step completion must reopen task scheduling
 
-**Integration regression:** Agent Bridge's isolated PostgreSQL two-step DAG canary (2026-10-10).  
+**Integration regression:** Agent Bridge's isolated PostgreSQL two-step DAG canary (2026-10-10).
+
 **Scope:** Tasker REST `complete_manually` repair of a permanently failed predecessor, **not** automatic job retry, blanket DAG unblocking, or privileged agent execution.
 
 ## Reproduced failure
