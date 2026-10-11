@@ -938,3 +938,37 @@ async fn test_manual_step_recovery_is_exactly_once_on_current_blocked_state(
     assert_eq!(TaskTransition::list_by_task(&pool, task.task_uuid).await?.len(), 2);
     Ok(())
 }
+
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+async fn test_manual_step_recovery_concurrent_attempts_are_fenced(
+    pool: PgPool,
+) -> sqlx::Result<()> {
+    use tasker_shared::state_machine::persistence::TaskTransitionPersistence;
+    use tasker_shared::state_machine::states::TaskState;
+
+    let task = create_test_task(&pool, "manual_recovery_race").await?;
+    TaskTransition::create(
+        &pool,
+        new_transition(task.task_uuid, "blocked_by_failures", Some("evaluating_results"), None),
+    )
+    .await?;
+    let left = TaskTransitionPersistence;
+    let right = TaskTransitionPersistence;
+    let attempt = || (task.task_uuid, TaskState::BlockedByFailures,
+        TaskState::WaitingForDependencies, uuid::Uuid::now_v7());
+    let (task1, from1, to1, who1) = attempt();
+    let (task2, from2, to2, who2) = attempt();
+    let (first, second) = tokio::join!(
+        left.transition_if_current(task1, from1, to1, who1, None, &pool),
+        right.transition_if_current(task2, from2, to2, who2, None, &pool),
+    );
+    let accepted = [first.expect("first DB transition"),
+        second.expect("second DB transition")];
+    assert_eq!(accepted.iter().filter(|value| **value).count(), 1);
+    let current = TaskTransition::get_current(&pool, task.task_uuid)
+        .await?
+        .expect("task current state exists");
+    assert_eq!(current.to_state, "waiting_for_dependencies");
+    assert_eq!(TaskTransition::list_by_task(&pool, task.task_uuid).await?.len(), 2);
+    Ok(())
+}
