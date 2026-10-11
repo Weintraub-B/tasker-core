@@ -6,7 +6,9 @@ use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
+use uuid::Uuid;
+use crate::services::step_service::StepService;
 
 use super::task_processor::TaskProcessor;
 use super::types::*;
@@ -37,6 +39,55 @@ impl BatchProcessor {
         }
     }
 
+    /// Reconcile only the precise crash-gap signature: a task still
+    /// BlockedByFailures whose current step transition is a persisted
+    /// CompleteManually and whose live execution context has no failed steps.
+    /// Do not manufacture an execution result or enqueue a dependent here.
+    async fn reconcile_interrupted_manual_completions(&self) -> TaskerResult<()> {
+        let pool = self.context.database_pool().clone();
+        let candidates: Vec<(Uuid, Uuid)> = sqlx::query_as(
+            r#"
+            SELECT DISTINCT ON (ws.task_uuid)
+                ws.task_uuid, ws.workflow_step_uuid
+            FROM tasker.workflow_steps ws
+            INNER JOIN tasker.workflow_step_transitions wst
+                ON wst.workflow_step_uuid = ws.workflow_step_uuid
+                AND wst.most_recent = true AND wst.to_state = 'complete'
+            INNER JOIN tasker.task_transitions tt
+                ON tt.task_uuid = ws.task_uuid
+                AND tt.most_recent = true AND tt.to_state = 'blocked_by_failures'
+            CROSS JOIN LATERAL tasker.get_task_execution_context(ws.task_uuid) ctx
+            WHERE ctx.failed_steps = 0
+                AND wst.metadata->>'event' LIKE '{"type":"CompleteManually",%'
+            ORDER BY ws.task_uuid, wst.created_at DESC
+            LIMIT $1
+            "#,
+        )
+        .bind(self.config.batch_size.max(1) as i64)
+        .fetch_all(&pool)
+        .await?;
+        if candidates.is_empty() {
+            return Ok(());
+        }
+        let step_service = StepService::new(pool.clone(), pool, self.context.clone());
+        for (task_uuid, step_uuid) in candidates {
+            // Reopen uses the named state-machine event and verifies live
+            // failed-step count again. It also fences against cancellation.
+            if let Err(error) = step_service
+                .reopen_after_manual_step_completion(task_uuid, step_uuid)
+                .await
+            {
+                warn!(
+                    task_uuid = %task_uuid,
+                    step_uuid = %step_uuid,
+                    error = %error,
+                    "Manual-completion recovery deferred; task remains guarded"
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// Run a single orchestration cycle using state machine approach
     pub async fn process_batch(&self) -> TaskerResult<StepEnqueuerServiceResult> {
         let cycle_start = Instant::now();
@@ -46,6 +97,11 @@ impl BatchProcessor {
             "Starting cycle using state machine - system_id: {}, tasks_per_cycle: {}, namespace_filter: {:?}",
             self.context.processor_uuid, self.config.batch_size, self.config.namespace_filter
         );
+
+        // Recover a crash between a durable operator manual-completion
+        // transition and the separate parent task reopen. This is deliberately
+        // bounded and runs even when the normal ready-task query is empty.
+        self.reconcile_interrupted_manual_completions().await?;
 
         // Get ready tasks using SqlFunctionExecutor (query operation)
         let sql_executor = SqlFunctionExecutor::new(self.context.database_pool().clone());

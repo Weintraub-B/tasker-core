@@ -230,7 +230,7 @@ impl StepService {
     /// A step write may have committed before a transient error; replaying the
     /// operator call can safely invoke this helper again, but no duplicate
     /// execution is dispatched by the helper itself.
-    async fn reopen_after_manual_step_completion(
+    pub(crate) async fn reopen_after_manual_step_completion(
         &self,
         task_uuid: Uuid,
         step_uuid: Uuid,
