@@ -23,7 +23,7 @@ A second race was discovered in `TaskTransitionPersistence::transition_with_owne
 - [x] Tasker/Rust source implementation added on a dedicated fork branch.
 - [x] `cargo check --offline -p tasker-orchestration` with host-specific linker override, exit 0 (2026-10-10).
 - [ ] Focused PostgreSQL database recovery/cancellation tests executed.
-- [ ] Rebuilt Tasker server compiled and isolated real PostgreSQL restart canary passed.
+- [x] Rebuilt Tasker server compiled and isolated real PostgreSQL restart canary passed on 2026-10-10. The disposable canary emitted `ISOLATED_TASKER_POSTGRES_CANARY {ok:true,dependentExecutions:1,duplicateReleaseReplay:true}` and `ISOLATED_TASKER_CRASH_GAP_RECOVERY {ok:true,serverRestarted:true,initialParentState:"blocked_by_failures",finalStatus:"COMPLETED",originalExecutions:1,dependentExecutions:1}`; 1/1 opt-in integration test passed against a freshly built feature-branch server. The first runs exposed transient PostgreSQL Docker initialization and synthetic SQL quoting issues; those were harness defects, not accepted green gates.
 - [ ] Multi-failed-predecessor, concurrent completion/cancellation and duplicate-delivery acceptance beyond unit fixtures.
 - [ ] Reproducible pinned fork binary/SDK packaging, a bounded live *installed* service promotion, release rollback and production readback.
 - [ ] Review of additional legacy Tasker transition paths for general CAS correctness. The present guard is intentionally limited to `ManualStepRecovered`.

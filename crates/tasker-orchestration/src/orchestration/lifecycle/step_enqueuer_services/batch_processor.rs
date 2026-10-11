@@ -58,7 +58,7 @@ impl BatchProcessor {
                 AND tt.most_recent = true AND tt.to_state = 'blocked_by_failures'
             CROSS JOIN LATERAL tasker.get_task_execution_context(ws.task_uuid) ctx
             WHERE ctx.failed_steps = 0
-                AND wst.metadata->>'event' LIKE '{"CompleteManually":%'
+                AND wst.metadata->>'event' LIKE '{"type":"CompleteManually",%'
             ORDER BY ws.task_uuid, wst.created_at DESC
             LIMIT $1
             "#,
