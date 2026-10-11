@@ -120,6 +120,53 @@ impl TransitionPersistence<crate::models::Task> for TaskTransitionPersistence {
 }
 
 impl TaskTransitionPersistence {
+    /// Conditional recovery transition, serialized against changes to the
+    /// most-recent task-transition row. Unlike an unconditional append, a
+    /// cancellation committed before this lock invalidates the expected state.
+    /// Only the named manual-step repair path calls this helper.
+    pub async fn transition_if_current(
+        &self,
+        task_uuid: Uuid,
+        from_state: TaskState,
+        to_state: TaskState,
+        processor_uuid: Uuid,
+        metadata: Option<Value>,
+        pool: &PgPool,
+    ) -> PersistenceResult<bool> {
+        let mut tx = pool.begin().await.map_err(|e| PersistenceError::TransitionSaveFailed {
+            reason: format!("Begin fenced recovery transition failed: {e}"),
+        })?;
+        let actual: Option<String> = sqlx::query_scalar(
+            "SELECT to_state FROM tasker.task_transitions \
+             WHERE task_uuid = $1 AND most_recent = true FOR UPDATE",
+        )
+        .bind(task_uuid)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| PersistenceError::TransitionSaveFailed {
+            reason: format!("Lock current task transition failed: {e}"),
+        })?;
+
+        if actual.as_deref() != Some(from_state.as_str()) {
+            return Ok(false);
+        }
+        let next = NewTaskTransition {
+            task_uuid,
+            to_state: to_state.to_string(),
+            from_state: Some(from_state.to_string()),
+            processor_uuid: Some(processor_uuid),
+            metadata,
+        };
+        TaskTransition::create_with_transaction(&mut tx, next).await
+            .map_err(|e| PersistenceError::TransitionSaveFailed {
+                reason: format!("Fenced manual recovery transition failed: {e}"),
+            })?;
+        tx.commit().await.map_err(|e| PersistenceError::TransitionSaveFailed {
+            reason: format!("Commit fenced manual recovery transition failed: {e}"),
+        })?;
+        Ok(true)
+    }
+
     /// TAS-41: Atomic transition with ownership validation
     /// Returns true if transition succeeded, false if ownership conflict occurred
     pub async fn transition_with_ownership(

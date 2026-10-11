@@ -147,20 +147,36 @@ impl TaskStateMachine {
             "event": format!("{:?}", event),
         }));
 
-        let success = self
-            .persistence
-            .transition_with_ownership(
-                self.task_uuid,
-                current_state,
-                target_state,
-                self.processor_uuid,
-                metadata,
-                &self.pool,
-            )
-            .await
-            .map_err(|e| StateMachineError::PersistenceFailed {
-                reason: e.to_string(),
-            })?;
+        let success = if matches!(event, TaskEvent::ManualStepRecovered(_)) {
+            // The manual completion may have committed before a crash. A
+            // concurrent cancellation must win over stale recovery: require
+            // the current persisted state to be BlockedByFailures at the
+            // moment of the transactional transition, not merely at load time.
+            self.persistence
+                .transition_if_current(
+                    self.task_uuid,
+                    current_state,
+                    target_state,
+                    self.processor_uuid,
+                    metadata,
+                    &self.pool,
+                )
+                .await
+        } else {
+            self.persistence
+                .transition_with_ownership(
+                    self.task_uuid,
+                    current_state,
+                    target_state,
+                    self.processor_uuid,
+                    metadata,
+                    &self.pool,
+                )
+                .await
+        }
+        .map_err(|e| StateMachineError::PersistenceFailed {
+            reason: e.to_string(),
+        })?;
 
         if success {
             // Execute actions only if transition succeeded and update cached state
